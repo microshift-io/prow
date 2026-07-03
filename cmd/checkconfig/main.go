@@ -1195,6 +1195,30 @@ func validateTideContextPolicy(cfg *config.Config) error {
 		}
 	}
 
+	for orgName, org := range cfg.BranchProtection.Orgs {
+		for repoName, repo := range org.Repos {
+			orgRepo := orgName + "/" + repoName
+			if _, ok := allKnownOrgRepoBranches[orgRepo]; !ok {
+				allKnownOrgRepoBranches[orgRepo] = sets.Set[string]{}
+			}
+			for branchName := range repo.Branches {
+				allKnownOrgRepoBranches[orgRepo].Insert(branchName)
+			}
+		}
+	}
+
+	for orgName, org := range cfg.Tide.ContextOptions.Orgs {
+		for repoName, repo := range org.Repos {
+			orgRepo := orgName + "/" + repoName
+			if _, ok := allKnownOrgRepoBranches[orgRepo]; !ok {
+				allKnownOrgRepoBranches[orgRepo] = sets.Set[string]{}
+			}
+			for branchName := range repo.Branches {
+				allKnownOrgRepoBranches[orgRepo].Insert(branchName)
+			}
+		}
+	}
+
 	// We have to disableInRepoConfig for this check, else we will
 	// attempt to clone the repo if its enabled
 	originalInRepoConfig := cfg.InRepoConfig
