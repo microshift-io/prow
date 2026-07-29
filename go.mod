@@ -62,7 +62,7 @@ require (
 	go4.org v0.0.0-20201209231011-d4a079459e60
 	gocloud.dev v0.40.0
 	golang.org/x/lint v0.0.0-20241112194109-818c5a804067
-	golang.org/x/net v0.54.0
+	golang.org/x/net v0.55.0
 	golang.org/x/oauth2 v0.34.0
 	golang.org/x/sync v0.20.0
 	golang.org/x/text v0.37.0
@@ -74,7 +74,7 @@ require (
 	google.golang.org/grpc v1.79.3
 	google.golang.org/protobuf v1.36.10
 	gopkg.in/fsnotify.v1 v1.4.7
-	gopkg.in/ini.v1 v1.67.0
+	gopkg.in/ini.v1 v1.67.3
 	k8s.io/api v0.33.11
 	k8s.io/apimachinery v0.33.11
 	k8s.io/client-go v0.33.11
