@@ -4,7 +4,7 @@ go 1.26.4
 
 require (
 	cloud.google.com/go/auth v0.23.2
-	cloud.google.com/go/cloudbuild v1.33.0
+	cloud.google.com/go/cloudbuild v1.34.0
 	cloud.google.com/go/pubsub/v2 v2.7.0
 	cloud.google.com/go/secretmanager v1.21.0
 	cloud.google.com/go/storage v1.67.1
@@ -49,7 +49,7 @@ require (
 	github.com/maxbrunsfeld/counterfeiter/v6 v6.12.2
 	github.com/prometheus/client_golang v1.24.1
 	github.com/prometheus/client_model v0.6.3
-	github.com/prometheus/common v0.71.0
+	github.com/prometheus/common v0.72.0
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/shurcooL/githubv4 v0.0.0-20210725200734-83ba7b4c9228
 	github.com/sirupsen/logrus v1.10.2
