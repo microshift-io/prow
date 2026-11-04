@@ -729,7 +729,26 @@ type Plank struct {
 	// from being triggered. Setting the concurrency to a negative value will remove the
 	// limit. An example use case would be easier scheduling of jobs using boskos resources.
 	// This mechanism is separate from ProwJob's MaxConcurrency setting.
-	JobQueueCapacities map[string]int `json:"job_queue_capacities,omitempty"`
+	JobQueueCapacities JobQueueCapacities `json:"job_queue_capacities,omitempty"`
+}
+
+// JobQueueCapacities maps a job queue name to its maximum concurrency.
+type JobQueueCapacities map[string]int
+
+func (jqc JobQueueCapacities) mergeFrom(additional *JobQueueCapacities) error {
+	if additional == nil {
+		return nil
+	}
+
+	var errs []error
+	for name, capacity := range *additional {
+		if _, ok := jqc[name]; ok {
+			errs = append(errs, fmt.Errorf("job queue %s passed more than once", name))
+			continue
+		}
+		jqc[name] = capacity
+	}
+	return utilerrors.NewAggregate(errs)
 }
 
 type ProwJobDefaultEntry struct {
@@ -2325,7 +2344,7 @@ func (c Config) validateJobBase(v JobBase, jobType prowapi.ProwJobType) error {
 	if err := validateAnnotation(v.Annotations); err != nil {
 		return err
 	}
-	validJobQueueNames := sets.KeySet[string](c.Plank.JobQueueCapacities)
+	validJobQueueNames := sets.KeySet[string](map[string]int(c.Plank.JobQueueCapacities))
 	if err := validateJobQueueName(v.JobQueueName, validJobQueueNames); err != nil {
 		return err
 	}
@@ -3005,14 +3024,51 @@ func validateDecoration(container v1.Container, config *prowapi.DecorationConfig
 
 func resolvePresets(name string, labels map[string]string, spec *v1.PodSpec, presets []Preset) error {
 	for _, preset := range presets {
-		if spec != nil {
-			if err := mergePreset(preset, labels, spec); err != nil {
+		if spec != nil && presetMatches(preset, labels) {
+			if err := applyPresetWithIncludes(preset, presets, spec, nil); err != nil {
 				return fmt.Errorf("job %s failed to merge presets for podspec: %w", name, err)
 			}
 		}
 	}
 
 	return nil
+}
+
+// applyPresetWithIncludes applies the preset and, recursively, all presets it includes.
+// chain holds the label pairs of the include path leading here and is used to detect cycles.
+func applyPresetWithIncludes(preset Preset, all []Preset, spec *v1.PodSpec, chain []string) error {
+	if err := applyPreset(preset, spec); err != nil {
+		return err
+	}
+	// Sort for deterministic application order.
+	includes := make([]string, 0, len(preset.IncludePresets))
+	for l := range preset.IncludePresets {
+		includes = append(includes, l)
+	}
+	sort.Strings(includes)
+	for _, l := range includes {
+		pair := l + ":" + preset.IncludePresets[l]
+		if slices.Contains(chain, pair) {
+			return fmt.Errorf("preset include cycle: %s", strings.Join(append(slices.Clone(chain), pair), " -> "))
+		}
+		included, ok := findPresetByLabel(all, l, preset.IncludePresets[l])
+		if !ok {
+			return fmt.Errorf("included preset with label %q not found", pair)
+		}
+		if err := applyPresetWithIncludes(included, all, spec, append(slices.Clone(chain), pair)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func findPresetByLabel(presets []Preset, label, value string) (Preset, bool) {
+	for _, p := range presets {
+		if v, ok := p.Labels[label]; ok && v == value {
+			return p, true
+		}
+	}
+	return Preset{}, false
 }
 
 var ReProwExtraRef = regexp.MustCompile(`PROW_EXTRA_GIT_REF_(\d+)`)
@@ -3440,11 +3496,12 @@ func (pc *ProwConfig) mergeFrom(additional *ProwConfig) error {
 		BranchProtection:     additional.BranchProtection,
 		Tide:                 Tide{TideGitHubConfig: TideGitHubConfig{MergeType: additional.Tide.MergeType, Queries: additional.Tide.Queries, ContextOptions: additional.Tide.ContextOptions}},
 		SlackReporterConfigs: additional.SlackReporterConfigs,
+		Plank:                Plank{JobQueueCapacities: additional.Plank.JobQueueCapacities},
 	}
 
 	var errs []error
 	if diff := cmp.Diff(additional, emptyReference, DefaultDiffOpts...); diff != "" {
-		errs = append(errs, fmt.Errorf("only 'branch-protection', 'slack_reporter_configs', 'tide.merge_method', 'tide.queries' and 'tide.context_options' may be set via additional config, all other fields have no merging logic yet. Diff: %s", diff))
+		errs = append(errs, fmt.Errorf("only 'branch-protection', 'slack_reporter_configs', 'tide.merge_method', 'tide.queries', 'tide.context_options' and 'plank.job_queue_capacities' may be set via additional config, all other fields have no merging logic yet. Diff: %s", diff))
 	}
 	if err := pc.BranchProtection.merge(&additional.BranchProtection); err != nil {
 		errs = append(errs, fmt.Errorf("failed to merge branch protection config: %w", err))
@@ -3457,6 +3514,12 @@ func (pc *ProwConfig) mergeFrom(additional *ProwConfig) error {
 		pc.SlackReporterConfigs = additional.SlackReporterConfigs
 	} else if err := pc.SlackReporterConfigs.mergeFrom(&additional.SlackReporterConfigs); err != nil {
 		errs = append(errs, fmt.Errorf("failed to merge slack-reporter config: %w", err))
+	}
+
+	if pc.Plank.JobQueueCapacities == nil {
+		pc.Plank.JobQueueCapacities = additional.Plank.JobQueueCapacities
+	} else if err := pc.Plank.JobQueueCapacities.mergeFrom(&additional.Plank.JobQueueCapacities); err != nil {
+		errs = append(errs, fmt.Errorf("failed to merge job queue capacities: %w", err))
 	}
 
 	return utilerrors.NewAggregate(errs)
