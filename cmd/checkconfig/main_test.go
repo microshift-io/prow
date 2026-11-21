@@ -764,6 +764,56 @@ presubmits:
 	}
 }
 
+// Strict validation must load the same supplemental configuration as the initial load.
+func TestValidateUnknownFieldsAllSupplementalConfig(t *testing.T) {
+	for _, suffix := range []string{"_prowconfig.yaml", "_custom.yaml"} {
+		t.Run(suffix, func(t *testing.T) {
+			root := t.TempDir()
+			configPath := filepath.Join(root, "config.yaml")
+			if err := os.WriteFile(configPath, []byte(`periodics:
+- name: supplemental-queue
+  interval: 1h
+  job_queue_name: supplemental
+  spec:
+    containers:
+    - image: alpine
+`), 0600); err != nil {
+				t.Fatal(err)
+			}
+			supplementalDir := filepath.Join(root, "supplemental")
+			if err := os.Mkdir(supplementalDir, 0700); err != nil {
+				t.Fatal(err)
+			}
+			shardPath := filepath.Join(supplementalDir, "queues"+suffix)
+			const shard = `plank:
+  job_queue_capacities:
+    supplemental: 1
+`
+			if err := os.WriteFile(shardPath, []byte(shard), 0600); err != nil {
+				t.Fatal(err)
+			}
+			opts := options{
+				config: configflagutil.ConfigOptions{
+					ConfigPath:                            configPath,
+					SupplementalProwConfigDirs:            flagutil.NewStrings(supplementalDir),
+					SupplementalProwConfigsFileNameSuffix: suffix,
+				},
+				warnings: flagutil.NewStrings(unknownFieldsAllWarning),
+			}
+			if err := validate(opts); err != nil {
+				t.Fatalf("validation failed: %v", err)
+			}
+			if err := os.WriteFile(shardPath, []byte(shard+"  unknown_shard_field: true\n"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := validate(opts); err == nil || !strings.Contains(err.Error(), shardPath) ||
+				!strings.Contains(err.Error(), `unknown field "unknown_shard_field"`) {
+				t.Errorf("validation error = %v, want unknown_shard_field reported in %s", err, shardPath)
+			}
+		})
+	}
+}
+
 func TestValidateStrictBranches(t *testing.T) {
 	trueVal := true
 	falseVal := false
